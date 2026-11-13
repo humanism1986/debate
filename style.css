@@ -253,3 +253,16 @@ body:not(.timer-view) .timer-tools{display:none}
   .team-clock{font-size:min(17vw,22dvh)}
   .burst{font-size:min(7vw,9dvh)}
 }
+
+.logo-window {
+  aspect-ratio: 3 / 1;
+}
+
+.logo-window img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
