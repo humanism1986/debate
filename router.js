@@ -1,4 +1,5 @@
-const safeId = value => /^[A-Za-z0-9_-]{1,128}$/.test(value || "");
+const safeId = value =>
+  /^[A-Za-z0-9_-]{1,128}$/.test(value || "");
 
 export function routePath(screen) {
   const id = encodeURIComponent(screen.id || "");
@@ -7,29 +8,56 @@ export function routePath(screen) {
   switch (screen.name) {
     case "timer-menu":
       return "/timer";
+
+    case "timer-ended":
+      return "/timer/finished";
+
     case "setup":
       return "/timer/setup";
+
     case "join":
       return "/timer/join";
+
     case "timer":
-      return "/timer/room/" + code + (screen.host ? "/host" : "");
+      return (
+        "/timer/room/" +
+        code +
+        (screen.host ? "/host" : "")
+      );
+
     case "board":
       return "/evaluations";
+
     case "create":
       return "/evaluations/new";
+
     case "ballot":
-      return "/evaluations/" + id;
+      return (
+        "/evaluations/" +
+        id +
+        (screen.edit ? "/edit" : "")
+      );
+
     case "submitted":
       return "/evaluations/" + id + "/submitted";
+
     case "manage":
       return "/evaluations/" + id + "/manage";
+
     case "detail":
-      return "/evaluations/" + id + "/responses/" +
-        encodeURIComponent(screen.responseId || "");
+      return (
+        "/evaluations/" +
+        id +
+        "/responses/" +
+        encodeURIComponent(screen.responseId || "")
+      );
+
     case "countdown":
       return "/evaluations/" + id + "/countdown";
+
     case "result":
       return "/evaluations/" + id + "/result";
+
     default:
       return "";
   }
@@ -48,18 +76,33 @@ export function parseRoute(hash) {
     return { name: "cover" };
   }
 
-  if (!parts.length) return { name: "cover" };
+  if (!parts.length) {
+    return { name: "cover" };
+  }
 
   if (parts[0] === "timer") {
     if (parts.length === 1) {
       return { name: "timer-menu" };
     }
 
-    if (parts.length === 2 && parts[1] === "setup") {
+    if (
+      parts.length === 2 &&
+      parts[1] === "finished"
+    ) {
+      return { name: "timer-ended" };
+    }
+
+    if (
+      parts.length === 2 &&
+      parts[1] === "setup"
+    ) {
       return { name: "setup" };
     }
 
-    if (parts.length === 2 && parts[1] === "join") {
+    if (
+      parts.length === 2 &&
+      parts[1] === "join"
+    ) {
       return { name: "join" };
     }
 
@@ -69,7 +112,10 @@ export function parseRoute(hash) {
     ) {
       if (
         parts.length === 3 ||
-        (parts.length === 4 && parts[3] === "host")
+        (
+          parts.length === 4 &&
+          parts[3] === "host"
+        )
       ) {
         return {
           name: "timer",
@@ -85,13 +131,29 @@ export function parseRoute(hash) {
       return { name: "board" };
     }
 
-    if (parts.length === 2 && parts[1] === "new") {
+    if (
+      parts.length === 2 &&
+      parts[1] === "new"
+    ) {
       return { name: "create" };
     }
 
     const id = parts[1];
 
-    if (!safeId(id)) return { name: "cover" };
+    if (!safeId(id)) {
+      return { name: "cover" };
+    }
+
+    if (
+      parts.length === 3 &&
+      parts[2] === "edit"
+    ) {
+      return {
+        name: "ballot",
+        id,
+        edit: true
+      };
+    }
 
     if (parts.length === 2) {
       return { name: "ballot", id };
@@ -99,9 +161,17 @@ export function parseRoute(hash) {
 
     if (
       parts.length === 3 &&
-      ["submitted", "manage", "countdown", "result"].includes(parts[2])
+      [
+        "submitted",
+        "manage",
+        "countdown",
+        "result"
+      ].includes(parts[2])
     ) {
-      return { name: parts[2], id };
+      return {
+        name: parts[2],
+        id
+      };
     }
 
     if (
@@ -122,12 +192,20 @@ export function parseRoute(hash) {
 
 export function screenUrl(screen) {
   const url = new URL(location.href);
+  const path = routePath(screen);
+
   url.searchParams.delete("room");
-  url.hash = routePath(screen) ? "#" + routePath(screen) : "";
+  url.hash = path ? "#" + path : "";
+
   return url.href;
 }
 
-export function createRouter({ capture, restore, depart, onError }) {
+export function createRouter({
+  capture,
+  restore,
+  depart,
+  onError
+}) {
   const snapshots = new Map();
   const stamp = () => crypto.randomUUID();
   const previous = history.state;
@@ -135,17 +213,27 @@ export function createRouter({ capture, restore, depart, onError }) {
   let current = {
     humanism: true,
     key: stamp(),
-    index: previous?.humanism === true ? previous.index || 0 : 0
+    index:
+      previous?.humanism === true
+        ? previous.index || 0
+        : 0
   };
 
   let epoch = 0;
   let used = false;
   let lastHref = location.href;
 
-  history.replaceState(current, "", location.href);
+  history.replaceState(
+    current,
+    "",
+    location.href
+  );
 
   function remember() {
-    snapshots.set(current.key, capture());
+    snapshots.set(
+      current.key,
+      capture()
+    );
   }
 
   function go(screen, replace = false) {
@@ -156,10 +244,18 @@ export function createRouter({ capture, restore, depart, onError }) {
     current = {
       humanism: true,
       key: stamp(),
-      index: replace ? current.index : current.index + 1
+      index:
+        replace
+          ? current.index
+          : current.index + 1
     };
 
-    history[replace ? "replaceState" : "pushState"](
+    const method =
+      replace
+        ? "replaceState"
+        : "pushState";
+
+    history[method](
       current,
       "",
       screenUrl(screen)
@@ -172,24 +268,37 @@ export function createRouter({ capture, restore, depart, onError }) {
     const turn = ++epoch;
     const alive = () => turn === epoch;
 
-    if (!initial) remember();
+    if (!initial) {
+      remember();
+    }
 
-    current = state?.humanism === true
-      ? state
-      : {
-          humanism: true,
-          key: stamp(),
-          index: current.index + 1
-        };
+    current =
+      state?.humanism === true
+        ? state
+        : {
+            humanism: true,
+            key: stamp(),
+            index: current.index + 1
+          };
 
-    history.replaceState(current, "", location.href);
+    history.replaceState(
+      current,
+      "",
+      location.href
+    );
+
     lastHref = location.href;
 
     const target = parseRoute(location.hash);
 
     try {
-      if (!initial && depart) await depart();
-      if (!alive()) return;
+      if (!initial && depart) {
+        await depart();
+      }
+
+      if (!alive()) {
+        return;
+      }
 
       const actual = await restore(
         target,
@@ -197,36 +306,56 @@ export function createRouter({ capture, restore, depart, onError }) {
         alive
       );
 
-      if (!alive() || !actual) return;
+      if (!alive() || !actual) {
+        return;
+      }
 
-      history.replaceState(current, "", screenUrl(actual));
+      history.replaceState(
+        current,
+        "",
+        screenUrl(actual)
+      );
+
       lastHref = location.href;
     } catch (error) {
-      if (alive()) onError(error);
+      if (alive()) {
+        onError(error);
+      }
     }
   }
 
-  window.addEventListener("popstate", event => {
-    void arrive(event.state);
-  });
-
-  window.addEventListener("hashchange", () => {
-    if (location.href !== lastHref) {
-      void arrive(history.state);
+  window.addEventListener(
+    "popstate",
+    event => {
+      void arrive(event.state);
     }
-  });
+  );
+
+  window.addEventListener(
+    "hashchange",
+    () => {
+      if (location.href !== lastHref) {
+        void arrive(history.state);
+      }
+    }
+  );
 
   return {
     go,
 
     back() {
-      if (current.index <= 0) return false;
+      if (current.index <= 0) {
+        return false;
+      }
+
       history.back();
       return true;
     },
 
     async start() {
-      if (!used) await arrive(current, true);
+      if (!used) {
+        await arrive(current, true);
+      }
     }
   };
 }
