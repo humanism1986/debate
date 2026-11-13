@@ -956,7 +956,7 @@ function tickTimer(){
 
     $('goEvaluate').classList.toggle(
       'hidden',
-      !(finished&&lastStep)
+      !lastStep
     );
   }
 
