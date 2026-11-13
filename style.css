@@ -307,3 +307,9 @@ body:not(.timer-view) .timer-tools{display:none}
     flex-wrap: wrap;
   }
 }
+
+
+/* 제출 완료 화면 버튼 중앙 정렬 */
+.done-screen .row {
+  justify-content: center;
+}
