@@ -848,7 +848,7 @@ function renderTimer(){
       isHost=false;
 
       toast('방이 종료되었습니다.');
-      navigate('timer-menu',{},true);
+      navigate(route.host?'timer-menu':'cover',{},true);
       return;
     }
 
