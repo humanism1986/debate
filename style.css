@@ -320,3 +320,26 @@ button[data-action="back"],
 button[data-action="timer-back"] {
   display: none;
 }
+
+
+/* 종료 화면 중앙 정렬 */
+.done-screen {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+}
+
+/* 중복된 제목 숨김 */
+.done-screen > .page-top {
+  display: none;
+}
+
+.done-screen > h1 {
+  margin: 0;
+}
+
+.done-screen .row {
+  justify-content: center;
+}
