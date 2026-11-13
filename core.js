@@ -35,6 +35,7 @@ export const ADMIN_EMAIL = "admin@humanism.local";
 
 export const fmt = ms => {
   const s = Math.max(0, Math.ceil(ms / 1000));
+
   return (
     String(Math.floor(s / 60)).padStart(2, "0") +
     ":" +
@@ -71,6 +72,7 @@ export function ceda(people) {
 
 export function fresh(c, index, at) {
   const s = c.steps[index];
+
   return {
     index,
     remaining: s.seconds * 1000,
@@ -94,7 +96,10 @@ export function projected(raw, c, at) {
 
     if (step.type !== "free") {
       s.remaining = Math.max(0, s.remaining - dt);
-      if (!s.remaining) s.running = false;
+
+      if (!s.remaining) {
+        s.running = false;
+      }
     } else if (s.active) {
       const k = s.active === "A" ? "a" : "b";
       const b = k === "a" ? "ba" : "bb";
@@ -103,7 +108,9 @@ export function projected(raw, c, at) {
       s[k] = Math.max(0, s[k] - used);
       s[b] = Math.max(0, s[b] - used);
 
-      if (!s[k] || !s[b]) s.running = false;
+      if (!s[k] || !s[b]) {
+        s.running = false;
+      }
     } else {
       s.running = false;
     }
@@ -121,7 +128,11 @@ export function change(raw, c, action, at) {
     case "next":
     case "prev": {
       const i = s.index + (action.type === "next" ? 1 : -1);
-      if (i < 0 || i >= c.steps.length) return null;
+
+      if (i < 0 || i >= c.steps.length) {
+        return null;
+      }
+
       s = fresh(c, i, at);
       break;
     }
@@ -138,11 +149,17 @@ export function change(raw, c, action, at) {
       if (s.running) {
         s.running = false;
       } else if (step.type !== "free") {
-        if (!s.remaining) s.remaining = step.seconds * 1000;
+        if (!s.remaining) {
+          s.remaining = step.seconds * 1000;
+        }
+
         s.running = true;
       } else if (s.active) {
         const k = s.active === "A" ? "a" : "b";
-        s.running = s[k] > 0 && s[k === "a" ? "ba" : "bb"] > 0;
+
+        s.running =
+          s[k] > 0 &&
+          s[k === "a" ? "ba" : "bb"] > 0;
       }
       break;
 
@@ -150,7 +167,9 @@ export function change(raw, c, action, at) {
       const k = action.side === "A" ? "a" : "b";
       const b = k === "a" ? "ba" : "bb";
 
-      if (!s[k]) return null;
+      if (!s[k]) {
+        return null;
+      }
 
       if (s.active !== action.side) {
         s[b] = Math.min(s[k], step.burst * 1000);
@@ -167,11 +186,18 @@ export function change(raw, c, action, at) {
 
       s[k] = Math.max(
         0,
-        Math.min(step.seconds * 1000, s[k] + action.delta * 1000)
+        Math.min(
+          step.seconds * 1000,
+          s[k] + action.delta * 1000
+        )
       );
+
       s[b] = Math.min(s[k], s[b]);
 
-      if (s.active === action.side && (!s[k] || !s[b])) {
+      if (
+        s.active === action.side &&
+        (!s[k] || !s[b])
+      ) {
         s.running = false;
       }
       break;
@@ -186,7 +212,9 @@ export function validateScores(scores) {
   if (
     !Array.isArray(scores) ||
     scores.length !== 6 ||
-    scores.some(x => !Number.isInteger(x) || x < 0 || x > 100)
+    scores.some(
+      x => !Number.isInteger(x) || x < 0 || x > 100
+    )
   ) {
     throw Error("각 항목을 0~100점으로 평가해주세요.");
   }
@@ -194,58 +222,110 @@ export function validateScores(scores) {
 
 export function weighted(scores) {
   validateScores(scores);
+
   return scores.reduce(
     (sum, x, i) => sum + x * CRITERIA[i].weight,
     0
   ) / 100;
 }
 
+// 기존 저장 데이터는 찬성 배분점수로 유지합니다.
+// 집계와 엑셀에서는 0=찬성, 100=반대 점수로 변환합니다.
 export function aggregate(responses, settings) {
   const rows = Object.entries(responses || {});
-  const judgeIds = settings.mode === "audience"
-    ? {}
-    : settings.judgeIds || {};
 
-  if (!["judges", "mixed", "audience"].includes(settings.mode)) {
+  if (
+    !["judges", "mixed", "audience"].includes(settings.mode)
+  ) {
     throw Error("평가 방식을 선택해주세요.");
   }
 
-  const percent = settings.mode === "judges"
-    ? 100
-    : settings.mode === "audience"
-      ? 0
-      : Number(settings.judgeWeight);
+  const judgeIds =
+    settings.mode === "audience"
+      ? {}
+      : settings.judgeIds || {};
 
-  if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
+  const percent =
+    settings.mode === "judges"
+      ? 100
+      : settings.mode === "audience"
+        ? 0
+        : Number(settings.judgeWeight);
+
+  if (
+    !Number.isInteger(percent) ||
+    percent < 0 ||
+    percent > 100
+  ) {
     throw Error("반영 비중을 확인해주세요.");
   }
 
   const judges = rows.filter(([id]) => judgeIds[id]);
   const audience = rows.filter(([id]) => !judgeIds[id]);
 
-  if (settings.mode !== "audience" && judges.length > 3) {
+  if (judges.length > 3) {
     throw Error("심사위원은 최대 3명입니다.");
   }
+
   if (percent > 0 && !judges.length) {
     throw Error("심사위원으로 지정된 응답이 없습니다.");
   }
+
   if (percent < 100 && !audience.length) {
     throw Error("청중 응답이 없습니다.");
   }
 
-  const sum = list => list.reduce((v, [, r]) => {
-    validateScores(r.scores);
-    return v + r.scores.reduce(
-      (a, x, i) => a + x * CRITERIA[i].weight,
-      0
-    );
-  }, 0);
+  const totals = list => list.reduce(
+    (sum, [, response]) => {
+      validateScores(response.scores);
 
-  const jSum = sum(judges);
-  const aSum = sum(audience);
+      return sum.map(
+        (value, i) => value + 100 - response.scores[i]
+      );
+    },
+    Array(6).fill(0)
+  );
+
+  const jTotals = totals(judges);
+  const aTotals = totals(audience);
   const j = judges.length;
   const a = audience.length;
 
+  const judgeCriteria =
+    j ? jTotals.map(value => value / j) : null;
+
+  const audienceCriteria =
+    a ? aTotals.map(value => value / a) : null;
+
+  const finalCriteria = Array.from(
+    { length: 6 },
+    (_, i) => {
+      if (percent === 100) {
+        return judgeCriteria[i];
+      }
+
+      if (percent === 0) {
+        return audienceCriteria[i];
+      }
+
+      return (
+        judgeCriteria[i] * percent / 100 +
+        audienceCriteria[i] * (100 - percent) / 100
+      );
+    }
+  );
+
+  const dot = values => values.reduce(
+    (sum, value, i) =>
+      sum + value * CRITERIA[i].weight,
+    0
+  );
+
+  const jSum = dot(jTotals);
+  const aSum = dot(aTotals);
+
+  // 소수 계산 오차로 무승부가 잘못 판정되지 않도록
+  // 정수 분자와 분모를 기준으로 비교합니다.
   let numerator;
   let denominator;
 
@@ -259,39 +339,59 @@ export function aggregate(responses, settings) {
     numerator =
       percent * jSum * a +
       (100 - percent) * aSum * j;
+
     denominator = 10000 * j * a;
   }
 
-  const pro = numerator / denominator;
+  const score = numerator / denominator;
+
+  const winner =
+    numerator === 50 * denominator
+      ? "draw"
+      : numerator < 50 * denominator
+        ? "A"
+        : "B";
 
   return {
-    pro,
-    con: 100 - pro,
-    winner: numerator === 50 * denominator
-      ? "draw"
-      : numerator > 50 * denominator ? "A" : "B",
+    model: "criteria-v2",
+    scale: "0-pro-100-con",
+    score,
+    pro: 100 - score,
+    con: score,
+    winner,
     mode: settings.mode,
     judgeWeight: percent,
     judgeCount: j,
     audienceCount: a,
     responseCount: rows.length,
-    judgeMean: j ? jSum / 100 / j : null,
-    audienceMean: a ? aSum / 100 / a : null
+    judgeCriteria,
+    audienceCriteria,
+    finalCriteria,
+    judgeScore: j ? jSum / 100 / j : null,
+    audienceScore: a ? aSum / 100 / a : null,
+    judgeMean: j ? 100 - jSum / 100 / j : null,
+    audienceMean: a ? 100 - aSum / 100 / a : null
   };
 }
 
 export function migrateConfig(c) {
-  if (c.people) return c;
+  if (c.people) {
+    return c;
+  }
 
   const people = {
-    A: (c.sideANames || ["찬성1", "찬성2"]).map((name, i) => ({
-      id: "A" + i,
-      name
-    })),
-    B: (c.sideBNames || ["반대1", "반대2"]).map((name, i) => ({
-      id: "B" + i,
-      name
-    }))
+    A: (c.sideANames || ["찬성1", "찬성2"]).map(
+      (name, i) => ({
+        id: "A" + i,
+        name
+      })
+    ),
+    B: (c.sideBNames || ["반대1", "반대2"]).map(
+      (name, i) => ({
+        id: "B" + i,
+        name
+      })
+    )
   };
 
   const all = [...people.A, ...people.B];
@@ -302,17 +402,37 @@ export function migrateConfig(c) {
     people,
     steps: c.steps.map((s, i) => ({
       id: "legacy-" + i,
-      type: s.type === "free"
-        ? "free"
-        : s.target
-          ? "cross"
-          : s.name === "숙의시간" ? "deliberation" : "normal",
+      type:
+        s.type === "free"
+          ? "free"
+          : s.target
+            ? "cross"
+            : s.name === "숙의시간"
+              ? "deliberation"
+              : "normal",
       name: s.name,
       seconds: s.seconds,
       burst: s.burst_limit || 0,
       color: s.color_role || "N",
-      speaker: all.find(p => p.name === s.speaker)?.id || "",
-      target: all.find(p => p.name === s.target)?.id || ""
+      speaker:
+        all.find(p => p.name === s.speaker)?.id || "",
+      target:
+        all.find(p => p.name === s.target)?.id || ""
     }))
   };
+}
+
+export function roomIsLive(room) {
+  return (
+    !!room &&
+    (!room.lease || room.presence?.[room.lease] === true)
+  );
+}
+
+export function controlsRoom(room, uid, lease) {
+  return (
+    !!room &&
+    room.ownerUid === uid &&
+    (!room.lease || room.lease === lease)
+  );
 }
