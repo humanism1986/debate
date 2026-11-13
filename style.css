@@ -313,3 +313,10 @@ body:not(.timer-view) .timer-tools{display:none}
 .done-screen .row {
   justify-content: center;
 }
+
+
+/* 일반 돌아가기 버튼 숨김 */
+button[data-action="back"],
+button[data-action="timer-back"] {
+  display: none;
+}
