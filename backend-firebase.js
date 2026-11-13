@@ -18,7 +18,10 @@ import {
   update,
   push,
   runTransaction,
-  serverTimestamp
+  serverTimestamp,
+  onDisconnect,
+  goOffline,
+  goOnline
 } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-database.js";
 
 import { firebaseConfig } from "./config.js";
@@ -28,7 +31,9 @@ import {
   aggregate,
   change,
   fresh,
-  migrateConfig
+  migrateConfig,
+  roomIsLive,
+  controlsRoom
 } from "./core.js";
 
 export async function createBackend() {
@@ -36,15 +41,21 @@ export async function createBackend() {
   const auth = getAuth(app);
   const db = getDatabase(app);
 
-  const adminApp = initializeApp(firebaseConfig, "humanism-admin");
+  const adminApp = initializeApp(
+    firebaseConfig,
+    "humanism-admin"
+  );
+
   const adminAuth = initializeAuth(adminApp, {
     persistence: inMemoryPersistence
   });
+
   const adminDb = getDatabase(adminApp);
 
   await auth.authStateReady();
 
-  const user = auth.currentUser ||
+  const user =
+    auth.currentUser ||
     (await signInAnonymously(auth)).user;
 
   let offset = 0;
@@ -52,9 +63,12 @@ export async function createBackend() {
   let timeReady = false;
 
   const connectListeners = new Set();
+  const hostLeases = new Map();
 
   const report = () => {
-    connectListeners.forEach(fn => fn(connected && timeReady));
+    connectListeners.forEach(fn =>
+      fn(connected && timeReady)
+    );
   };
 
   onValue(ref(db, ".info/connected"), snapshot => {
@@ -70,7 +84,9 @@ export async function createBackend() {
 
   const ready = () => {
     if (!connected || !timeReady) {
-      throw Error("인터넷 연결을 확인하고 다시 시도해주세요.");
+      throw Error(
+        "인터넷 연결을 확인하고 다시 시도해주세요."
+      );
     }
   };
 
@@ -89,7 +105,11 @@ export async function createBackend() {
 
     try {
       await new Promise((resolve, reject) => {
-        stop = onValue(target, () => resolve(), reject);
+        stop = onValue(
+          target,
+          () => resolve(),
+          reject
+        );
       });
 
       return await runTransaction(target, fn, {
@@ -104,7 +124,9 @@ export async function createBackend() {
     ready();
 
     if (!adminAuth.currentUser) {
-      throw Error("관리자 비밀번호를 다시 입력해주세요.");
+      throw Error(
+        "관리자 비밀번호를 다시 입력해주세요."
+      );
     }
   };
 
@@ -118,6 +140,7 @@ export async function createBackend() {
     onConnection(fn) {
       connectListeners.add(fn);
       fn(connected && timeReady);
+
       return () => connectListeners.delete(fn);
     },
 
@@ -131,13 +154,17 @@ export async function createBackend() {
       );
 
       const allowed = await get(
-        ref(adminDb, "adminAccess/" + adminAuth.currentUser.uid)
+        ref(
+          adminDb,
+          "adminAccess/" + adminAuth.currentUser.uid
+        )
       );
 
       if (allowed.val() !== true) {
         await signOut(adminAuth);
+
         throw Error(
-          "관리자 권한 설정이 필요합니다. 설치 안내를 확인해주세요."
+          "관리자 권한 설정이 필요합니다."
         );
       }
     },
@@ -151,24 +178,35 @@ export async function createBackend() {
     },
 
     watchEvaluation(id, fn, fail) {
-      return watch(db, "evaluations/" + id, fn, fail);
+      return watch(
+        db,
+        "evaluations/" + id,
+        fn,
+        fail
+      );
     },
 
     async evaluation(id) {
       ready();
-      return (await get(ref(db, "evaluations/" + id))).val();
+
+      return (
+        await get(ref(db, "evaluations/" + id))
+      ).val();
     },
 
     async management(id) {
       admin();
 
-      const [m, r] = await Promise.all([
+      const [meta, result] = await Promise.all([
         get(ref(adminDb, "evaluations/" + id)),
         get(ref(adminDb, "results/" + id))
       ]);
 
-      return m.exists()
-        ? { ...m.val(), ...(r.val() || {}) }
+      return meta.exists()
+        ? {
+            ...meta.val(),
+            ...(result.val() || {})
+          }
         : null;
     },
 
@@ -176,22 +214,32 @@ export async function createBackend() {
       ready();
 
       return (
-        await get(ref(db, "responses/" + id + "/" + me()))
+        await get(
+          ref(
+            db,
+            "responses/" + id + "/" + me()
+          )
+        )
       ).val();
     },
 
-    async createEvaluation(c) {
+    async createEvaluation(config) {
       admin();
 
-      const id = push(ref(adminDb, "evaluations")).key;
+      const id = push(
+        ref(adminDb, "evaluations")
+      ).key;
 
-      await set(ref(adminDb, "evaluations/" + id), {
-        ...c,
-        createdAt: serverTimestamp(),
-        open: true,
-        mode: "audience",
-        judgeWeight: 50
-      });
+      await set(
+        ref(adminDb, "evaluations/" + id),
+        {
+          ...config,
+          createdAt: serverTimestamp(),
+          open: true,
+          mode: "audience",
+          judgeWeight: 50
+        }
+      );
 
       return id;
     },
@@ -199,16 +247,37 @@ export async function createBackend() {
     async submit(id, name, scores) {
       ready();
 
-      await set(ref(db, "responses/" + id + "/" + me()), {
-        name,
-        scores,
-        submittedAt: serverTimestamp()
-      });
+      const tx = await transactRead(
+        ref(
+          db,
+          "responses/" + id + "/" + me()
+        ),
+        previous => ({
+          name,
+          scores,
+          submittedAt:
+            previous?.submittedAt ||
+            serverTimestamp(),
+          updatedAt: serverTimestamp()
+        })
+      );
+
+      if (!tx.committed) {
+        throw Error(
+          "응답을 저장할 수 없습니다."
+        );
+      }
     },
 
     watchResponses(id, fn, fail) {
       admin();
-      return watch(adminDb, "responses/" + id, fn, fail);
+
+      return watch(
+        adminDb,
+        "responses/" + id,
+        fn,
+        fail
+      );
     },
 
     async deleteEvaluation(id) {
@@ -230,65 +299,109 @@ export async function createBackend() {
       });
     },
 
+    async setEvaluationOpen(id, open) {
+      admin();
+
+      const tx = await transactRead(
+        ref(adminDb, "evaluations/" + id),
+        current =>
+          current
+            ? { ...current, open: !!open }
+            : undefined
+      );
+
+      if (!tx.committed) {
+        throw Error("삭제된 평가입니다.");
+      }
+
+      await set(
+        ref(adminDb, "results/" + id + "/result"),
+        null
+      );
+
+      return tx.snapshot.val();
+    },
+
     async finalize(id, settings) {
       admin();
 
-      const er = ref(adminDb, "evaluations/" + id);
-      let previous;
+      const [meta, answers] = await Promise.all([
+        get(ref(adminDb, "evaluations/" + id)),
+        get(ref(adminDb, "responses/" + id))
+      ]);
 
-      const tx = await transactRead(er, c => {
-        if (!c) return;
-        previous = c;
-        return { ...c, open: false };
-      });
-
-      if (!tx.committed) {
-        throw Error("평가가 삭제되었거나 마감할 수 없습니다.");
+      if (!meta.exists()) {
+        throw Error("삭제된 평가입니다.");
       }
 
-      try {
-        const rows = (
-          await get(ref(adminDb, "responses/" + id))
-        ).val() || {};
+      const rows = answers.val() || {};
 
-        const result = {
-          ...aggregate(rows, settings),
-          finalizedAt: Date.now() + offset
-        };
+      const result = {
+        ...aggregate(rows, settings),
+        finalizedAt: Date.now() + offset
+      };
 
-        await set(ref(adminDb, "results/" + id), {
+      await set(
+        ref(adminDb, "results/" + id),
+        {
           ...settings,
           result
-        });
+        }
+      );
 
-        return {
-          result,
-          responses: rows,
-          meta: {
-            ...tx.snapshot.val(),
-            ...settings,
-            result
-          }
-        };
-      } catch (e) {
-        await update(er, { open: previous.open });
-        throw e;
-      }
+      return {
+        result,
+        responses: rows,
+        meta: {
+          ...meta.val(),
+          ...settings,
+          result
+        }
+      };
+    },
+
+    ownsRoom(code, value) {
+      return controlsRoom(
+        value,
+        me(),
+        hostLeases.get(code)
+      );
+    },
+
+    disconnect() {
+      goOffline(db);
+    },
+
+    reconnect() {
+      goOnline(db);
     },
 
     async createRoom(code, config) {
       ready();
 
+      const lease = crypto.randomUUID();
+      const target = ref(db, "rooms/" + code);
+
       const tx = await runTransaction(
-        ref(db, "rooms/" + code),
-        c => {
-          if (c) return;
+        target,
+        current => {
+          if (
+            roomIsLive(current) &&
+            current.ownerUid !== me()
+          ) {
+            return;
+          }
 
           return {
             ownerUid: me(),
+            lease,
             createdAt: serverTimestamp(),
             config,
-            state: fresh(config, 0, Date.now() + offset)
+            state: fresh(
+              config,
+              0,
+              Date.now() + offset
+            )
           };
         },
         { applyLocally: false }
@@ -299,6 +412,57 @@ export async function createBackend() {
           "이미 사용 중인 방 코드입니다. 다른 코드를 입력해주세요."
         );
       }
+
+      const presenceRef = ref(
+        db,
+        "rooms/" + code + "/presence/" + lease
+      );
+
+      try {
+        await onDisconnect(presenceRef).remove();
+
+        const active = await transactRead(
+          target,
+          current => {
+            if (
+              !controlsRoom(
+                current,
+                me(),
+                lease
+              )
+            ) {
+              return;
+            }
+
+            return {
+              ...current,
+              presence: {
+                [lease]: true
+              }
+            };
+          }
+        );
+
+        if (!active.committed) {
+          throw Error(
+            "방 생성이 취소되었습니다. 다시 시도해주세요."
+          );
+        }
+
+        await onDisconnect(presenceRef).remove();
+
+        hostLeases.set(code, lease);
+      } catch (error) {
+        await transactRead(
+          target,
+          current =>
+            controlsRoom(current, me(), lease)
+              ? null
+              : undefined
+        ).catch(() => {});
+
+        throw error;
+      }
     },
 
     async getRoom(code) {
@@ -308,18 +472,41 @@ export async function createBackend() {
         await get(ref(db, "rooms/" + code))
       ).val();
 
-      return raw
-        ? { ...raw, config: migrateConfig(raw.config) }
+      return roomIsLive(raw)
+        ? {
+            ...raw,
+            config: migrateConfig(raw.config)
+          }
         : null;
     },
 
-    watchRoom(code, fn, fail) {
+    watchRoom(code, fn, fail, asHost = false) {
       return watch(
         db,
         "rooms/" + code,
-        x => fn(
-          x ? { ...x, config: migrateConfig(x.config) } : null
-        ),
+        current => {
+          const valid =
+            roomIsLive(current) &&
+            (
+              !asHost ||
+              controlsRoom(
+                current,
+                me(),
+                hostLeases.get(code)
+              )
+            );
+
+          fn(
+            valid
+              ? {
+                  ...current,
+                  config: migrateConfig(
+                    current.config
+                  )
+                }
+              : null
+          );
+        },
         fail
       );
     },
@@ -329,18 +516,36 @@ export async function createBackend() {
 
       const tx = await transactRead(
         ref(db, "rooms/" + code),
-        c => {
-          if (!c || c.ownerUid !== me()) return;
+        current => {
+          if (
+            !controlsRoom(
+              current,
+              me(),
+              hostLeases.get(code)
+            ) ||
+            !roomIsLive(current)
+          ) {
+            return;
+          }
 
-          const config = migrateConfig(c.config);
+          const config = migrateConfig(
+            current.config
+          );
+
           const state = change(
-            c.state,
+            current.state,
             config,
             action,
             Date.now() + offset
           );
 
-          return state ? { ...c, config, state } : undefined;
+          return state
+            ? {
+                ...current,
+                config,
+                state
+              }
+            : undefined;
         }
       );
 
@@ -356,33 +561,62 @@ export async function createBackend() {
 
       const tx = await transactRead(
         ref(db, "rooms/" + code),
-        c => {
-          if (!c || c.ownerUid !== me()) return;
+        current => {
+          if (
+            !controlsRoom(
+              current,
+              me(),
+              hostLeases.get(code)
+            ) ||
+            !roomIsLive(current)
+          ) {
+            return;
+          }
 
           return {
-            ...c,
+            ...current,
             config,
-            state: fresh(config, 0, Date.now() + offset)
+            state: fresh(
+              config,
+              0,
+              Date.now() + offset
+            )
           };
         }
       );
 
       if (!tx.committed) {
-        throw Error("방 조작 권한이 없습니다.");
+        throw Error(
+          "방 조작 권한이 없습니다."
+        );
       }
     },
 
     async closeRoom(code) {
       ready();
 
+      const lease = hostLeases.get(code);
+
       const tx = await transactRead(
         ref(db, "rooms/" + code),
-        c => c?.ownerUid === me() ? null : undefined
+        current =>
+          controlsRoom(current, me(), lease)
+            ? null
+            : undefined
       );
 
-      if (!tx.committed) {
-        throw Error("방을 종료할 수 없습니다.");
+      if (lease) {
+        await onDisconnect(
+          ref(
+            db,
+            "rooms/" + code + "/presence/" + lease
+          )
+        ).cancel().catch(() => {});
+
+        hostLeases.delete(code);
       }
+
+      return tx.committed;
     }
   };
 }
