@@ -266,3 +266,44 @@ body:not(.timer-view) .timer-tools{display:none}
   max-width: 100%;
   object-fit: contain;
 }
+
+/* 평가 접수 상태와 관리 버튼 */
+.receipt-status {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.receipt-status.receiving {
+  color: #78dbb6;
+}
+
+.receipt-status.closed {
+  color: #aab0bd;
+}
+
+.modes {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
+}
+
+@media (max-width: 700px) {
+  .modes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modes #receiptToggle {
+    grid-column: 1 / -1;
+  }
+
+  .board-right {
+    flex-wrap: wrap;
+  }
+
+  .board-right > .row {
+    flex-wrap: wrap;
+  }
+}
